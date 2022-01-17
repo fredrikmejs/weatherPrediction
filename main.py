@@ -2,12 +2,14 @@ import csv
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn import datasets, linear_model
-from sklearn import datasets, linear_model
+from sklearn import linear_model
 import statistics as st
+from operator import itemgetter
 from sklearn.metrics import mean_squared_error, r2_score
 
 
+# TODO prøv selv beregnet akkumuleret
+# TODO undersøg kalman filteret
 class AnalyzeData:
     def __init__(self):
         if os.path.exists('cleanedCVS.csv'):
@@ -25,8 +27,10 @@ class AnalyzeData:
         self.openFile()
         self.cleanCVS()
         self.createNewCVS()
-        #self.yearlyDegree()
-        self.linearRegression()
+        # self.yearlyDegree()
+        # self.linearRegression()
+        # self.movingWindowTail()
+        self.movingWindowCenter()
 
     def openFile(self):
         self.file = open(self.fileName, 'r')
@@ -78,16 +82,12 @@ class AnalyzeData:
 
         for month in months:
             dates = {}
-
             station = self.months[month][0]
 
             for stationId in station:
                 x = []
                 y = []
                 for item in station[stationId]:
-                    if item[2] == 2021:
-                        continue
-
                     if dates.__contains__(item[3]):
                         dates[item[3]].append(item[0])
                     else:
@@ -118,8 +118,9 @@ class AnalyzeData:
 
                 plt.show()
 
-    def polyRegression(self, x, y, key, month):
-        myModel = np.poly1d(np.polyfit(x, y, 4))
+    @staticmethod
+    def polyRegression(x, y, key, month):
+        myModel = np.poly1d(np.polyfit(x, y, 3))
         myLine = np.linspace(1, 31)
         print('-------------------')
         print('StationId', key, 'month', month)
@@ -159,6 +160,208 @@ class AnalyzeData:
             plt.barh(x, y)
             plt.xlabel(key)
             plt.show()
+
+    def movingWindowTail(self):
+        months = self.months.keys()
+
+        for month in months:
+            for station in self.months[month]:
+                for stationId in station:
+                    dates = {}
+                    years = {}
+                    for item in self.months[month][0][stationId]:
+                        if dates.__contains__(item[3]):
+                            dates[item[3]].append(item[0])
+                        else:
+                            dates[item[3]] = [item[0]]
+
+                        if years.__contains__(item[2]):
+                            years[item[2]].append([item[3], item[0]])
+                        else:
+                            years[item[2]] = [[item[3], item[0]]]
+
+                    toSortMax = []
+                    toSortMin = []
+
+                    average = []
+
+                    for date in dates.keys():
+                        toSortMax.append([date, max(dates[date])])
+                        toSortMin.append([date, min(dates[date])])
+                        average.append([date, st.mean(dates[date])])
+
+                    for year in years:
+                        if year % 4 != 0:
+                            continue
+
+                        x, y = self.setXY(years[year])
+                        plt.plot(x, y, label=str(year))
+
+                    x, yH = self.setXY(toSortMax)
+                    x, yL = self.setXY(toSortMin)
+                    x, yA = self.setXY(average)
+
+                    averageX, averageY = self.calculateMovingAverageTail(yH, yL)
+
+                    plt.plot(x, yA, label='Average Temp')
+                    plt.plot(x, yH, label='Max')
+                    plt.plot(x, yL, label='Min')
+                    plt.xlabel('Days')
+                    plt.ylabel('Degree day')
+                    plt.plot(averageX, averageY, label='Moving Average')
+                    plt.title(("Station: ", stationId, "Month: ", month))
+                    plt.legend()
+
+                    if 1 <= int(month) < 3:
+                        plt.show()
+                    else:
+                        plt.clf()
+
+    def movingWindowCenter(self):
+        months = self.months.keys()
+        errorT = []
+        errorC = []
+
+        for month in months:
+            for station in self.months[month]:
+                for stationId in station:
+                    dates = {}
+                    years = {}
+                    for item in self.months[month][0][stationId]:
+                        if dates.__contains__(item[3]):
+                            dates[item[3]].append(item[0])
+                        else:
+                            dates[item[3]] = [item[0]]
+
+                        if years.__contains__(item[2]):
+                            years[item[2]].append([item[3], item[0]])
+                        else:
+                            years[item[2]] = [[item[3], item[0]]]
+
+                    toSortMax = []
+                    toSortMin = []
+
+                    average = []
+
+                    for date in dates.keys():
+                        toSortMax.append([date, max(dates[date])])
+                        toSortMin.append([date, min(dates[date])])
+                        average.append([date, st.mean(dates[date])])
+
+                    '''
+                    for year in years:
+                        if year % 4 != 0:
+                            continue
+
+                        y = self.setXY(years[year])
+                        plt.plot(y, label=str(year))
+                    '''
+
+                    yH = self.setXY(toSortMax)
+                    yL = self.setXY(toSortMin)
+                    yA = self.setXY(average)
+
+                    x2, averageY = self.calculateMovingAverageCenter(yH, yL)
+                    x1, y1 = self.calculateMovingAverageTail(yH, yL)
+
+
+                    '''
+                    plt.plot(yA, label='Average Temp')
+                    plt.xlabel('Days')
+                    plt.ylabel('Degree day')
+                    plt.plot(x2, averageY, label='Moving AverageCENTER')
+                    plt.plot(x1, y1, label='Moving AverageTAIL')
+                    plt.title(("Station: ", stationId, "Month: ", month))
+                    plt.legend()
+                    '''
+
+                    if 1 <= int(month) < 2:
+                        #plt.plot(yH, label='Max')
+                        #plt.plot(yL, label='Min')
+                        plt.title(("Station:%s, Month:%s " % (str(stationId), str(month))))
+                        print("Station: ", stationId, "Month: ", month)
+                        tail, center = self.makeMovingWindowPrediction(5, yA, y1, averageY)
+                        errorC.append(center)
+                        errorT.append(tail)
+                        print('--------------------------\n')
+                        # plt.show()
+                    # else:
+                    # plt.clf()
+        print('mean of ErrorT= %f' % st.mean(errorT))
+        print('mean of ErrorC= %f' % st.mean(errorC))
+
+    @staticmethod
+    def setXY(sortList):
+        sortList.sort(key=itemgetter(0))
+        y = []
+
+        for item in sortList:
+            y.append(item[1])
+
+        return y
+
+    @staticmethod
+    def calculateMovingAverageTail(high, low):
+        x = []
+        y = []
+        movingWindow = 5
+        for i in range(movingWindow, len(high)):
+            x.append(i)
+            windowSum = 0
+            for j in range(i, i - movingWindow, -1):
+                windowSum += high[j] + low[j]
+            y.append(windowSum / (movingWindow * 2))
+
+        return x, y
+
+    @staticmethod
+    def calculateMovingAverageCenter(high, low):
+        x = []
+        y = []
+        movingWindow = 5  # Needs to be an odd number
+        for i in range(int((movingWindow - 1) / 2), len(high)):
+            windowSum = 0
+            if i + (movingWindow - 1) / 2 < len(high):
+                k = 0
+                for j in range(i, i + int((movingWindow - 1) / 2)):
+                    if k == 0:
+                        windowSum += high[i] + low[i]
+                    else:
+                        windowSum += high[i + k] + low[i + k]
+                        windowSum += high[i - k] + low[i - k]
+                    k += 1
+                if windowSum > 0:
+                    x.append(i)
+                y.append(windowSum / (movingWindow + 1))
+
+        return x, y
+
+    @staticmethod
+    def makeMovingWindowPrediction(window, average, movingTail,
+                                   movingCenter):
+        test = [average[i] for i in range(window, len(average))]
+        test1 = [average[i] for i in range(int((window - 1) / 2), len(average) - 2)]
+        x = [i for i in range(int((window - 1) / 2), len(average) - 2)]
+
+        for i in range(len(average) - window):
+            pass
+            # print('PredictedT=%f, expected=%f' % (yhatTail[i], average[i]))
+            # print('PredictedC=%f, expected=%f' % (yhatCenter[i], average[i]))
+            # print('-------------------------------')
+
+        errorTail = mean_squared_error(test, movingTail)
+        errorCenter = mean_squared_error(test1, movingCenter)
+
+        print('Test MSE Tail: %.3f' % errorTail)
+        print('Test MSE Center: %.3f' % errorCenter)
+
+        # plot
+        plt.plot(test, color='b', label='Average')
+        plt.plot(movingTail, color='red', label='Tail')
+        plt.plot(x, movingCenter, color='y', label='Center')
+        plt.show()
+
+        return errorTail, errorCenter
 
 
 if __name__ == '__main__':
