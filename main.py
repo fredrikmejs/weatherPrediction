@@ -32,11 +32,7 @@ class AnalyzeData:
 
     def cleanCVS(self):
         for row in list(self.rows):
-            if row[5] == '0': # or \
-                    #float(row[3]) < 1 or \
-                    #(float(row[3]) > 50 and row[0] != '102008') or \
-                    #(float(row[3]) > 55 and row[0] == '102008') or \
-                    #row[5] == '0':
+            if row[5] == '0':
                 self.rows.remove(row)
                 continue
 
@@ -64,8 +60,7 @@ class AnalyzeData:
         months = [['1', 1], ['12', 31]]
 
         for key in keys:
-            i = 2007
-            for j in range(i, 2021):
+            for j in range(2007, 2021):
                 for item in months:
                     for date in self.months[item[0]][0][key]:
                         if date[2] == j and date[3] == item[1]:
@@ -91,7 +86,7 @@ class AnalyzeData:
             plt.show()
 
     def movingWindow(self):
-        mw.MovingWindow(self.months).movingWindow()
+        mw.MovingWindow(self.rows).flow()
 
     def seasonal(self):
         seasonal.SeasonalAdjustment(self.stationList).flow()

@@ -7,94 +7,82 @@ from sklearn.metrics import mean_squared_error
 
 
 class MovingWindow:
-    def __init__(self, months):
-        self.months = months
+    def __init__(self, rows):
+        self.rows = rows
+        self.months = {}
         self.MSE = list()
         self.centerMSE = {}
         self.tailMSE = {}
 
+    def flow(self):
+        self.cleanFile()
+        self.movingWindow()
+
+    def cleanFile(self):
+        for row in list(self.rows):
+            if row[5] == '0' or \
+                    float(row[3]) < 1 or \
+                    (float(row[3]) > 50 and row[0] != '102008') or \
+                    (float(row[3]) > 55 and row[0] == '102008') or \
+                    row[5] == '0':
+                self.rows.remove(row)
+                continue
+
+            if self.months.__contains__(row[6]):
+                if self.months[row[6]].__contains__(row[0]):
+                    if self.months[row[6]][row[0]].__contains__(row[5]):
+                        self.months[row[6]][row[0]][row[5]].append([float(row[3]), float(row[4]), int(row[7])])
+                    else:
+                        self.months[row[6]][row[0]][row[5]] = [[float(row[3]), float(row[4]), int(row[7])]]
+                else:
+                    self.months[row[6]][row[0]] = {row[5]: [[float(row[3]), float(row[4]), int(row[7])]]}
+            else:
+                self.months[row[6]] = {row[0]: {row[5]: [[float(row[3]), float(row[4]), int(row[7])]]}}
+
     def movingWindow(self):
-        self.movingWindowCenter()
+        for month in self.months.keys():
+            for stationId in self.months[month]:
+                years = list()
+                compare = list()
 
-    def movingWindowCenter(self):
-        windows = [5]
+                for year in self.months[month][stationId]:
+                    if self.checkMonthsForStations(stationId, int(year)):
+                        continue
 
-        for windowSize in windows:
+                    dates = list()
 
-            for month in self.months.keys():
-                if 5 < int(month) < 9:
-                    continue
+                    for item in self.months[month][stationId][year]:
+                        dates.append([item[2], item[0]])
 
-                for stationId in self.months[month]:
-                    #if stationId != '102008':
-                        #continue
+                    y = self.setXY(dates)
 
-                    years = list()
-                    compare = list()
+                    if year != '2021':
+                        years.append(y)
+                    else:
+                        compare = y
 
-                    for year in self.months[month][stationId]:
-                        if self.checkMonthsForStations(stationId, int(year)):
-                            continue
+                length = len(compare)
 
-                        dates = list()
+                for x in years:
+                    if len(x) < length:
+                        length = len(x)
 
-                        for item in self.months[month][stationId][year]:
-                            dates.append([item[2], item[0]])
+                windowSize = 5
+                xT, yT = self.calculateMovingAverageTail(years[0], years[1], length, windowSize)
+                xC, yC = self.calculateMovingAverageCenter(years[0], years[1], length, windowSize)
 
-                        y = self.setXY(dates)
+                plt.title('Station %s, month %s' % (stationId, month))
+                self.movingWindowPrediction(windowSize, yT, yC, compare, length)
 
-                        # x = [i for i in range(1, len(y) + 1)]
+        tail = list()
+        center = list()
+        for item in self.MSE:
+            tail.append(item[0])
+            center.append(item[1])
 
-                        # plt.plot(x, y, label=year)
-                        if year != '2021':
-                            years.append(y)
-                        else:
-                            compare = y
-
-                    # plt.xlabel('Days of the month')
-                    # plt.ylabel('Degree day')
-                    # plt.legend()
-                    # plt.show()
-                    length = len(compare)
-
-                    for x in years:
-                        if len(x) < length:
-                            length = len(x)
-
-                    windowSize = windowSize
-                    x, y = self.calculateMovingAverageTail(years[0], years[1], length, windowSize)
-                    x1, y1 = self.calculateMovingAverageCenter(years[0], years[1], length, windowSize)
-
-                    plt.title('Station %s, month %s' % (stationId, month))
-                    self.makeMovingWindowPrediction(windowSize, y, y1, compare, length)
-
-            tail = list()
-            center = list()
-            for item in self.MSE:
-                tail.append(item[0])
-                center.append(item[1])
-
-            print('Tail mean: %f ' % st.mean(tail))
-            print('Center mean: %f' % st.mean(center))
-            print('---------------------')
-
-
-        _tempC = list()
-        _tempT = list()
-        x = list()
-        for item in self.centerMSE.keys():
-            x.append(item)
-            _tempC.append(st.mean(self.centerMSE[item]))
-            _tempT.append(st.mean(self.tailMSE[item]))
-
-        plt.title('RMSE værdier for 1, 3, 5, 7, 9')
-        plt.plot(x, _tempC, label='Center')
-        plt.xlabel('WindowSizes')
-        plt.ylabel('RMSE value')
-        plt.plot(x, _tempT, label='Tail')
-        plt.legend()
-
-        plt.show()
+        print('Tail mean: %f ' % st.mean(tail))
+        print('Center mean: %f' % st.mean(center))
+        print('---------------------')
 
     @staticmethod
     def setXY(sortList):
@@ -107,12 +95,12 @@ class MovingWindow:
         return y
 
     @staticmethod
-    def calculateMovingAverageTail(year1, year2, length, windowSize):
+    def calculateMovingAverageTail(year1, year2, length, window):
         x = []
         y = []
 
-        movingWindow = windowSize
-        for i in range(windowSize, length):
+        movingWindow = window
+        for i in range(window - 1, length):
             x.append(i + 1)
             windowSum = 0
 
@@ -124,10 +112,10 @@ class MovingWindow:
         return x, y
 
     @staticmethod
-    def calculateMovingAverageCenter(year1, year2, length, windowSize):
+    def calculateMovingAverageCenter(year1, year2, length, window):
         x = []
         y = []
-        movingWindow = windowSize  # Needs to be an odd number
+        movingWindow = window  # Needs to be an odd number
         startingPoint = int((movingWindow - 1) / 2)
 
         for i in range(startingPoint, length):
@@ -148,11 +136,11 @@ class MovingWindow:
 
         return x, y
 
-    def makeMovingWindowPrediction(self, window, tail,
-                                   center, compare, length):
-        test = [compare[i] for i in range(window, length)]
+    def movingWindowPrediction(self, window, tail,
+                               center, compare, length):
+        test = [compare[i] for i in range(window - 1, length)]
         test1 = [compare[i] for i in range(int((window - 1) / 2), length - int((window - 1) / 2))]
-        xT = [i + 1 for i in range(window, length)]
+        xT = [i + 1 for i in range(window - 1, length)]
         xC = [i + 1 for i in range(int((window - 1) / 2), length - int((window - 1) / 2))]
 
         errorTail = mean_squared_error(test, tail)
@@ -182,9 +170,9 @@ class MovingWindow:
 
     @staticmethod
     def checkMonthsForStations(station, year):
-
         if station == '102008':
-            if year == 2021 or year == 2019 or year == 2018:
+            if year == 2021 or year == 2019 \
+                    or year == 2018:
                 return False
 
         elif station == '102117':
@@ -239,7 +227,8 @@ class MovingWindow:
                 return False
 
         elif station == '102804':
-            if year == 2021 or year == 2019 or year == 2017:
+            if year == 2021 or year == 2019\
+                    or year == 2017:
                 return False
 
         elif station == '102810':

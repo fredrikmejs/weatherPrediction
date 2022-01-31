@@ -3,6 +3,8 @@ from math import sqrt
 
 import numpy as np
 import pandas as pd
+from filterpy.common import Q_discrete_white_noise
+from filterpy.kalman import KalmanFilter
 from matplotlib import pyplot as plt
 from numpy import polyfit
 from sklearn.metrics import mean_squared_error
@@ -18,7 +20,7 @@ class SeasonalAdjustment:
         # self.plot()
         # self.adjustment()
         self.seasonalAdjustment()
-        # self.modeling()
+        self.modeling()
 
     def setupDataFrame(self):
         for station in self.stationsList.keys():
@@ -37,17 +39,13 @@ class SeasonalAdjustment:
         for x in self.data.keys():
             plt.clf()
             self.data[x].plot()
-            if x == '102008':
-                plt.title('plot, Station: %s' % x)
-                plt.xlabel('Years')
-                plt.ylabel('Degree day')
-                plt.show()
+            plt.title('plot, Station: %s' % x)
+            plt.xlabel('Years')
+            plt.ylabel('Degree day')
+            plt.show()
 
     def adjustment(self):
         for x in self.data.keys():
-            if x != '102008':
-                continue
-
             plt.clf()
             X = self.data[x].values
             diff = list()
@@ -55,323 +53,331 @@ class SeasonalAdjustment:
             for i in range(days_in_year, len(X)):
                 value = X[i] - X[i - days_in_year]
                 diff.append(value)
-            if x == '102008':
-                plt.plot(diff)
-                plt.title('adjustment, Station %s' % x)
-                plt.xlabel('years')
-                plt.ylabel('degree day')
-                plt.show()
 
     def seasonalAdjustment(self):
         plt.clf()
         for x in self.data.keys():
-            if x != '102008':
-                continue
-
             y = self.data[x].values
 
-            diff = list()
-            days_in_year = 365
-            for i in range(days_in_year, len(y)):
-                # String to compare date with
-                monthDay = str(self.data[x].index[i].month) + '/' + str(self.data[x].index[i].day)
-                if monthDay == '2/29':  # Extra day every four years
-                    if i - days_in_year * 4 > 0:  # Checks for out of bounds
-                        value = y[i] - y[i - days_in_year * 4]
-                    else:
-                        value = 0  # Set to 0 because of no difference
-                    days_in_year += 1  # adds on day for correction
-                elif monthDay == '2/28':
-                    value = y[i] - y[i - days_in_year]
-                    days_in_year = 365
+            diff = self.checkForFebTwentyNine(x, y)
+
+            plt.plot(diff)
+            plt.title('Seasonal adjustment noice for station %s' % x)
+            plt.xlabel('Days')
+            plt.ylabel('Subtracted noice')
+            plt.show()
+
+            self.plotSeasonalAdjustment(diff, x, y)
+
+    def checkForFebTwentyNine(self, x, y):
+        diff = list()
+        days_in_year = 365
+        for i in range(days_in_year, len(y)):
+            # String to compare date with
+            monthDay = str(self.data[x].index[i].month) + '/' + str(self.data[x].index[i].day)
+            if monthDay == '2/29':  # Extra day every four years
+                if i - days_in_year * 4 > 0:  # Checks for out of bounds
+                    value = y[i] - y[i - days_in_year * 4]
                 else:
-                    value = y[i] - y[i - days_in_year]
+                    value = 0  # Set to 0 because of no difference
+                days_in_year += 1  # adds on day for correction
+            elif monthDay == '2/28':
+                value = y[i] - y[i - days_in_year]
+                days_in_year = 365
+            else:
+                value = y[i] - y[i - days_in_year]
 
-                diff.append(value)
+            diff.append(value)
 
-            if x == '102008':
-                plt.plot(diff)
-                plt.title('Seasonal adjustment noice for station %s' % x)
-                plt.xlabel('Days')
-                plt.ylabel('Subtracted noice')
-                plt.show()
+        return diff
 
-                _temp = list()
-                realData = [y[i] for i in range(365, len(y))]
+    def plotSeasonalAdjustment(self, diff, x, y):
+        adjustedData = list()
+        # Because of the removal of the first 365 days
+        realData = [y[i] for i in range(365, len(y))]
 
-                for i in range(len(y) - 365):
-                    value = realData[i] - diff[i]
-                    _temp.append(value)
+        for i in range(len(y) - 365):
+            value = realData[i] - diff[i]
+            adjustedData.append(value)
 
-                plt.plot(_temp)
-                plt.title('Seasonal adjustment, Station %s' % x)
-                plt.xlabel('Days')
-                plt.ylabel('Degree days')
-                plt.show()
+        plt.plot(adjustedData)
+        plt.title('Seasonal adjustment, Station %s' % x)
+        plt.xlabel('Days')
+        plt.ylabel('Degree days')
+        plt.show()
 
-                dayNumber = [i % 365 for i in range(0, len(self.data[x].values) - 365)]
+        curve = self.createCurveSeasonal(adjustedData, realData)
 
-                for degree in [3, 4, 5, 6]:
-                    coef = polyfit(dayNumber, _temp, degree)
+        length = len(realData) - 1
+        dailyDiffPlot = list()
+        numbers = [10, 9, 7, 6, 5, 4, 3, 2, 1, 0]
+        for j in numbers:
+            GD = 0
+            predictedGD = 0
+            n = 0
+            for i in range(length - (365 * j), length - (366 + 365 * j), -1):
+                GD += realData[i][0]
+                predictedGD += curve[0][i]
+                n += 1
 
-                    testCurve = list()
-                    curve = list()
+            dailyDiff = (GD - predictedGD) / n
+            dailyDiffPlot.append(dailyDiff)
 
-                    for i in range(len(dayNumber)):
-                        value = coef[-1][0]
-                        for d in range(degree):
-                            value += dayNumber[i] ** (degree - d) * coef[d][0]
-                        curve.append(value)
+        plt.xlabel('Years from 2011')
+        plt.ylabel('Daily difference')
+        plt.title('Seasonal adjustment daily difference over a year')
+        plt.grid()
+        dailyDiffPlot.reverse()
+        plt.plot(numbers, dailyDiffPlot)
+        plt.plot(numbers, dailyDiffPlot, 'o')
+        plt.show()
 
-                    # for i in coef:
-                    # print(i)
-                    '''
-                    plt.subplot(2, 2, degree - 2)
-                    plt.plot(_temp, label='Adjusted Data')
-                    plt.plot(curve, color='r', label='Curve')
-                    plt.xlabel('Days')
-                    plt.ylabel('Degree days')
-                    plt.title('Degree: %d' % degree)
-                    plt.tight_layout()
-                    '''
+        print('\nChosen number of degrees: %d' % curve[2])
+        _correctForm = []
+        for item in adjustedData:
+            _correctForm.append(item[0])
+        ApplyKalmanFilter(_correctForm, realData, curve[2]).plot()
 
-                    RMSE = sqrt(mean_squared_error(realData, curve))
+    # Creates model from polyfit
+    def createCurveSeasonal(self, adjusted, realData):
 
-                    if len(testCurve) == 0:
-                        testCurve = [curve, RMSE, degree]
-                    else:
-                        if testCurve[1] < RMSE:
-                            testCurve = [curve, RMSE, degree]
+        curve = self.createSubPlots(adjusted, False, realData)
 
-                    print('RMSE adjustment: %f for degree: %d' % (RMSE, degree))
+        return curve
 
-                plt.show()
+    def createCurveModel(self, data):
 
-                length = len(realData) - 1
-                dailyDiffPlot = list()
-                numbers = [10, 9, 7, 6, 5, 4, 3, 2, 1, 0]
-                for j in numbers:
-                    GD = 0
-                    predictedGD = 0
-                    n = 0
-                    for i in range(length - (1 + 365 * j), length - (366 + 365 * j), -1):
-                        GD += realData[i][0]
-                        predictedGD += curve[i]
-                        n += 1
+        curve = self.createSubPlots(data, True)
 
-                    dailyDiff = (GD - predictedGD) / n
-                    print(
-                        '\nGD: %f, predictedGD: %f, diff: %f for degree: %d' % (GD, predictedGD, dailyDiff, degree))
-                    print('Daily difference: %f' % dailyDiff)
-                    dailyDiffPlot.append(dailyDiff)
-
-                plt.xlabel('Years from 2011')
-                plt.ylabel('Daily difference')
-                dailyDiffPlot.reverse()
-
-                plt.plot(numbers, dailyDiffPlot)
-                plt.show()
-
-                print('\nChosen number of degrees: %d' % testCurve[2])
-                _correctForm = []
-                for item in _temp:
-                    _correctForm.append(item[0])
-                ApplyKalmanFilter(curve, realData).foo()
-
-            print('----------- \n')
+        return curve
 
     def modeling(self):
         for x in self.data.keys():
-            if x != '102008':
-                continue
 
             plt.clf()
-            dayNumber = [i % 365 for i in range(0, len(self.data[x].values))]
             y = self.data[x].values
-            degree = 4
-            coef = polyfit(dayNumber, y, degree)
 
-            print('Normal Seasonal')
-            for i in coef:
-                print(i)
+            curve = self.createCurveModel(y)
 
-            print('-----------')
-            # create curve
+            diff = list()
+
+            for i in range(len(y)):
+                value = y[i] - curve[0][i]
+                diff.append(value)
+
+            GD = 0
+            GD_predicted = 0
+            length = len(y) - 1
+            for i in range(length - 365, length):
+                GD += y[i]
+                GD_predicted += curve[0][i]
+
+            difference = GD - GD_predicted
+
+            print('GD: %f, GD_p: %f, different: %f' % (GD, GD_predicted, difference))
+            print('Daily difference: %f' % (difference / 365))
+
+            plt.plot(diff, linewidth=1)
+            plt.xlabel('days')
+            plt.ylabel('Substracted value')
+            plt.title('Noice, Station %s' % x)
+
+            plt.show()
+
+            plt.plot(y)
+            plt.plot(curve[0], linewidth=3, color='r')
+            plt.xlabel('days')
+            plt.ylabel('Degree day')
+            plt.title('Fitted model, Station %s' % x)
+
+            plt.show()
+
+            print('RMSE form: %f' % sqrt(mean_squared_error(y, curve[0])))
+
+            _correctForm = []
+            for item in curve[0]:
+                _correctForm.append(item)
+            ApplyKalmanFilter(_correctForm, y, curve[2]).plot()
+
+    def createSubPlots(self, data, isModel, realData=None):
+        dayNumber = [i % 365 for i in range(0, len(data))]
+        plotNum = 1
+        RMSEList = list()
+        tempCurve = list()
+        for degree in range(3, 15):
+            coef = polyfit(dayNumber, data, degree)
             curve = list()
 
             for i in range(len(dayNumber)):
                 value = coef[-1][0]
+
                 for d in range(degree):
                     value += dayNumber[i] ** (degree - d) * coef[d][0]
                 curve.append(value)
 
-            # create seasonally adjusted
-            diff = list()
+            plt.subplot(2, 2, plotNum)
+            plt.plot(data, label='Adjusted Data')
+            plt.plot(curve, color='r', label='Curve')
+            plt.xlabel('Days')
+            plt.ylabel('Degree days')
+            plt.title('Degree: %d' % degree)
+            plt.tight_layout()
 
-            for i in range(len(y)):
-                value = y[i] - curve[i]
-                diff.append(value)
-
-            _temp = list()
-
-            for i in range(len(dayNumber)):
-                value = y[i] - diff[i]
-                _temp.append(value)
-
-            if x == '102008':
-                plt.plot(diff, color='red', linewidth=1)
-                plt.xlabel('days')
-                plt.ylabel('Substracted value')
-                plt.title('modelling1, Station %s' % x)
-
+            if plotNum == 4:
+                plotNum = 1
                 plt.show()
+            else:
+                plotNum += 1
 
-                plt.plot(y)
-                plt.plot(_temp, linewidth=3, color='r')
-                plt.xlabel('days')
-                plt.ylabel('Degree day')
-                plt.title('modelling2, Station %s' % x)
+            if isModel:
+                RMSE = sqrt(mean_squared_error(data, curve))
+            else:
+                RMSE = sqrt(mean_squared_error(realData, curve))
 
-                plt.show()
+            RMSEList.append([RMSE, degree])
 
-                print('RMSE form: %f' % sqrt(mean_squared_error(y, _temp)))
+            if len(tempCurve) == 0:
+                tempCurve = [curve, RMSE, degree]
+            else:
+                if tempCurve[1] < RMSE:
+                    tempCurve = [curve, RMSE, degree]
 
-                _correctForm = []
-                for item in _temp:
-                    _correctForm.append(item[0])
-                ApplyKalmanFilter(_correctForm, y).plot()
+            print('RMSE adjustment: %f for degree: %d\n' % (RMSE, degree))
+
+        print('The choosen degree is %d' % tempCurve[2])
+        plt.show()
+
+        x = list()
+        y = list()
+        for item in RMSEList:
+            x.append(item[1])
+            y.append(item[0])
+
+        plt.plot(x, y)
+        plt.plot(x, y, 'o')
+        plt.xlabel('Degrees')
+        plt.ylabel('RMSE')
+        plt.grid()
+        plt.title("Models RMSE for different degrees")
+        plt.show()
+
+        return tempCurve
 
 
 class ApplyKalmanFilter:
-    def __init__(self, seasonalModel, measurement):
+
+    def __init__(self, seasonalModel, measurement, degree):
         self.measurement = measurement
         self.model = seasonalModel
         self.x = np.array([seasonalModel[0], 0]).reshape((2, 1))
         self.P = np.eye(2)
-
-    def predict(self, dt: float):
-        # x = f x
-        # P = F P Ft + G Gt a
-        F = np.array([[1, dt], [0, 1]])
-        new_x = F.dot(self.x)
-
-        G = np.array([0.5 * dt ** 2, dt]).reshape(2, 1)
-        new_p = F.dot(self.P).dot(F.T) + G.dot(G.T) * 1.0
-
-        self.x = new_x
-        self.P = new_p
+        self.degree = degree
 
     def plot(self):
         plt.clf()
 
-        covariance = []
-        measurements = []
-
-        for i in range(1, len(self.measurement)):
-            measurements.append(self.x)
-            covariance.append(self.P)
-
-            self.predict(0.3)
-            self.update(self.model[i], 5 ** 2)
-
-        plt.title('TEST1')
-
-        plt.plot([self.model[i] for i in range(0, len(self.model))], 'b--')
-        plt.plot([a[0] for a in measurements], 'r')
-
-        modelS = 0
-        modelR = 0
-        _test = []
-        for i in range(0, len(self.model) - 1):
-            modelR += self.measurement[i]
-            modelS += self.model[i]
-            _test.append(self.measurement[i][0])
-
-        a = [a[0] for a in measurements]
-        modelK = sum(a)
-        print('ModelR: %f \nModelK: %f' % (modelR, modelK))
-
-        _test2 = list()
-        for item in measurements:
-            _test2.append(item[0][0])
-
-        b = mean_squared_error(_test, _test2)
-        b = np.sqrt(b)
-
-        print('%f\n' % b)
-
-        plt.show()
-
-    def update(self, measurement, variance):
-        # Y = z -H X
-        # S = H P Ht + R
-        # K = P Ht S^-1
-        # x = x+ K Y
-        # P = (I - K H) * P
-
-        z = np.array([measurement])
-        R = np.array([variance])
-        H = np.array([1, 0]).reshape((1, 2))
-
-        Y = z - H.dot(self.x)
-        S = H.dot(self.P).dot(H.T) + R
-        K = self.P.dot(H.T).dot(np.linalg.inv(S))
-
-        new_x = self.x + K.dot(Y)
-        new_P = (np.eye(2) - K.dot(H)).dot(self.P)
-
-        self.x = new_x
-        self.P = new_P
-
-    def foo(self):
-        from filterpy.kalman import KalmanFilter
-        f = KalmanFilter(dim_x=2, dim_z=1)
-
-        f.x = self.x
-
-        f.F = np.array([[1., 0.5], [0, 1]])
-
-        f.H = np.array([1, 0]).reshape((1, 2))
-
-        f.P = self.P
-
-        f.R = 5
-
-        from filterpy.common import Q_discrete_white_noise
-        f.Q = Q_discrete_white_noise(dim=2, dt=0.1, var=25)
-
-        covariance = []
         measurements = []
         predicted = list()
+
+        f = self.initKalmanFilter()
+
         for i in range(1, len(self.measurement)):
             measurements.append(self.x)
-            covariance.append(self.P)
 
             f.predict()
-            f.update(self.model[i])
+            f.update(self.model[i] + np.random.rand() * np.sqrt(0.2 ** 2))
 
             predicted.append(f.x[0, 0])
 
-        plt.plot(predicted, color='red')
-        plt.title('Kalman')
+        plt.title('Kalman filter')
+
+        plt.plot(self.measurement, label='Measurements')
+        plt.plot(predicted, 'r', label='Model from Kalman filter')
+        plt.xlabel('Days')
+        plt.ylabel('Degree day')
+        plt.legend()
         plt.show()
 
-        modelR = 0
-        modelK = 0
-        _test = []
-        for i in range(0, len(self.model) - 1):
-            modelR += self.measurement[i]
-            modelK += predicted[i]
-            _test.append(self.measurement[i][0])
+        self.calculateDifferences(predicted)
 
-        print('\n\n\nModelR: %f \nModelK: %f' % (modelR, modelK))
-        print('diff: %f' % ((modelR - modelK)/365))
+    def calculateDifferences(self, predicted):
 
-        _test2 = list()
-        for item in measurements:
-            _test2.append(item[0][0])
+        trueValue = []
+        length = len(predicted) - 1
+        dailyDiffPlot = list()
+        numbers = [10, 9, 7, 6, 5, 4, 3, 2, 1, 0]
 
-        b = mean_squared_error(_test, predicted)
-        b = np.sqrt(b)
+        for i in range(0, len(self.measurement) - 1):
+            trueValue.append(self.measurement[i][0])
 
-        print('%f\n' % b)
+        for j in numbers:
+            modelK = 0
+            modelR = 0
+            n = 0
+            for i in range(length - (365 * j), length - (365 + 365 * j), -1):
+                modelR += self.measurement[i][0]
+                modelK += predicted[i]
+                n += 1
+
+            dailyDiff = (modelR - modelK) / n
+            dailyDiffPlot.append(dailyDiff)
+
+        print('Average daily difference: %f' % np.mean(dailyDiffPlot))
+
+        plt.xlabel('Years from 2011')
+        plt.title('Daily difference with Kalman Filter')
+        plt.ylabel('Daily difference')
+        dailyDiffPlot.reverse()
+        plt.plot(numbers, dailyDiffPlot)
+        plt.plot(numbers, dailyDiffPlot, 'o')
+        plt.grid()
+        plt.show()
+
+        RMSE = np.sqrt(mean_squared_error(trueValue, predicted))
+
+        print('RMSE: %f\n' % RMSE)
+
+        self.polyfit(predicted)
+
+    def polyfit(self, predicted):
+        dayNumber = [i % 365 for i in range(0, len(self.model) - 1)]
+        fit = np.polyfit(dayNumber, predicted, self.degree)
+
+        curve = list()
+
+        for i in range(len(dayNumber)):
+            value = fit[-1]
+            for d in range(self.degree):
+                value += dayNumber[i] ** (self.degree - d) * fit[d]
+            curve.append(value)
+
+        plt.plot(curve, label='Curve')
+        plt.xlabel('Days')
+        plt.ylabel('Degree days')
+        plt.title('Curve from Kalman filter')
+        plt.show()
+
+        for i in fit:
+            print(i)
+
+    def initKalmanFilter(self):
+        kalmanFilter = KalmanFilter(dim_x=2, dim_z=1)
+
+        # First point in the model
+        kalmanFilter.x = self.x
+
+        # State transistion matrix
+        kalmanFilter.F = np.array([[1., 0.5], [0, 1]])
+
+        # Measurement funktion
+        kalmanFilter.H = np.array([1., 0]).reshape((1, 2))
+
+        # Covariance matrix
+        kalmanFilter.P = self.P
+
+        # Noice in the measurement, using the RMSE from before
+        kalmanFilter.R = 5.5
+
+        kalmanFilter.Q = Q_discrete_white_noise(dim=2, dt=1, var=25)
+
+        return kalmanFilter
