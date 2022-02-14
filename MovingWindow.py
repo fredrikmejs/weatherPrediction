@@ -11,6 +11,7 @@ class MovingWindow:
         self.rows = rows
         self.months = {}
         self.MSE = list()
+        self.MAE = list()
         self.centerMSE = {}
         self.tailMSE = {}
 
@@ -41,38 +42,40 @@ class MovingWindow:
 
     def movingWindow(self):
         for month in self.months.keys():
-            for stationId in self.months[month]:
-                years = list()
-                compare = list()
+            if '5' >= month < '9':
+                for stationId in self.months[month]:
+                    if stationId == '102008':
+                        years = list()
+                        compare = list()
 
-                for year in self.months[month][stationId]:
-                    if self.checkMonthsForStations(stationId, int(year)):
-                        continue
+                        for year in self.months[month][stationId]:
+                            if self.checkMonthsForStations(stationId, int(year)):
+                                continue
 
-                    dates = list()
+                            dates = list()
 
-                    for item in self.months[month][stationId][year]:
-                        dates.append([item[2], item[0]])
+                            for item in self.months[month][stationId][year]:
+                                dates.append([item[2], item[0]])
 
-                    y = self.setXY(dates)
+                            y = self.setXY(dates)
 
-                    if year != '2021':
-                        years.append(y)
-                    else:
-                        compare = y
+                            if year != '2021':
+                                years.append(y)
+                            else:
+                                compare = y
 
-                length = len(compare)
+                        length = len(compare)
 
-                for x in years:
-                    if len(x) < length:
-                        length = len(x)
+                        for x in years:
+                            if len(x) < length:
+                                length = len(x)
 
-                windowSize = 5
-                xT, yT = self.calculateMovingAverageTail(years[0], years[1], length, windowSize)
-                xC, yC = self.calculateMovingAverageCenter(years[0], years[1], length, windowSize)
+                        windowSize = 5
+                        xT, yT = self.calculateMovingAverageTail(years[0], years[1], length, windowSize)
+                        xC, yC = self.calculateMovingAverageCenter(years[0], years[1], length, windowSize)
 
-                plt.title('Station %s, month %s' % (stationId, month))
-                self.movingWindowPrediction(windowSize, yT, yC, compare, length)
+                        plt.title('Station %s, month %s' % (stationId, month))
+                        self.movingWindowPrediction(windowSize, yT, yC, compare, length)
 
         tail = list()
         center = list()
@@ -80,8 +83,20 @@ class MovingWindow:
             tail.append(item[0])
             center.append(item[1])
 
-        print('Tail mean: %f ' % st.mean(tail))
-        print('Center mean: %f' % st.mean(center))
+        print('Tail RMSE: %f ' % st.mean(tail))
+        print('Center RMSE: %f' % st.mean(center))
+        print('---------------------')
+
+
+        tail2 = list()
+        center2 = list()
+
+        for item in self.MAE:
+            tail2.append(item[0])
+            center2.append(item[1])
+
+        print('Tail MAE: %f ' % st.mean(tail2))
+        print('Center MAE: %f' % st.mean(center2))
         print('---------------------')
 
     @staticmethod
@@ -147,6 +162,14 @@ class MovingWindow:
         errorCenter = mean_squared_error(test1, center)
 
         self.MSE.append([sqrt(errorTail), sqrt(errorCenter)])
+
+        MAET = []
+        MAEC = []
+        for i in range(0, len(tail)):
+            MAET.append(test[i] - tail[i])
+            MAEC.append(test1[i] - center[i])
+
+        self.MAE.append([st.mean(MAET), st.mean(MAEC)])
 
         if self.centerMSE.keys().__contains__(window):
             self.centerMSE[window].append(sqrt(errorCenter))
@@ -227,7 +250,7 @@ class MovingWindow:
                 return False
 
         elif station == '102804':
-            if year == 2021 or year == 2019\
+            if year == 2021 or year == 2019 \
                     or year == 2017:
                 return False
 

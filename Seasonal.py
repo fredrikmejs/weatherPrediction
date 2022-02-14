@@ -14,6 +14,7 @@ class SeasonalAdjustment:
     def __init__(self, stations):
         self.stationsList = stations
         self.data = {}
+        self.MAE = 0
 
     def flow(self):
         self.setupDataFrame()
@@ -34,8 +35,8 @@ class SeasonalAdjustment:
 
             self.data[station] = pd.DataFrame(data, index=date)
 
+    # Plots all the data
     def plot(self):
-
         for x in self.data.keys():
             plt.clf()
             self.data[x].plot()
@@ -44,6 +45,7 @@ class SeasonalAdjustment:
             plt.ylabel('Degree day')
             plt.show()
 
+    # Creates an adjustment
     def adjustment(self):
         for x in self.data.keys():
             plt.clf()
@@ -54,9 +56,12 @@ class SeasonalAdjustment:
                 value = X[i] - X[i - days_in_year]
                 diff.append(value)
 
+    # Creates the model seasonal Adjustment
     def seasonalAdjustment(self):
         plt.clf()
         for x in self.data.keys():
+            print('StationID: %s' % x)
+
             y = self.data[x].values
 
             diff = self.checkForFebTwentyNine(x, y)
@@ -125,12 +130,15 @@ class SeasonalAdjustment:
 
         plt.xlabel('Years from 2011')
         plt.ylabel('Daily difference')
-        plt.title('Seasonal adjustment daily difference over a year')
+        plt.title('Seasonal adjustment daily difference over a year, station: %s' % x)
         plt.grid()
         dailyDiffPlot.reverse()
         plt.plot(numbers, dailyDiffPlot)
         plt.plot(numbers, dailyDiffPlot, 'o')
         plt.show()
+
+        diffence = dailyDiffPlot[0]
+        print('Daily diff for 2021: %f' % diffence)
 
         print('\nChosen number of degrees: %d' % curve[2])
         _correctForm = []
@@ -156,9 +164,7 @@ class SeasonalAdjustment:
 
             plt.clf()
             y = self.data[x].values
-
             curve = self.createCurveModel(y)
-
             diff = list()
 
             for i in range(len(y)):
@@ -173,25 +179,19 @@ class SeasonalAdjustment:
                 GD_predicted += curve[0][i]
 
             difference = GD - GD_predicted
-
             print('GD: %f, GD_p: %f, different: %f' % (GD, GD_predicted, difference))
             print('Daily difference: %f' % (difference / 365))
-
             plt.plot(diff, linewidth=1)
             plt.xlabel('days')
             plt.ylabel('Substracted value')
             plt.title('Noice, Station %s' % x)
-
             plt.show()
 
-            plt.plot(y)
-            plt.plot(curve[0], linewidth=3, color='r')
+            plt.plot(curve[0], linewidth=3)
             plt.xlabel('days')
             plt.ylabel('Degree day')
-            plt.title('Fitted model, Station %s' % x)
-
+            plt.title('Model after subtraktion, Station %s' % x)
             plt.show()
-
             print('RMSE form: %f' % sqrt(mean_squared_error(y, curve[0])))
 
             _correctForm = []
@@ -239,26 +239,26 @@ class SeasonalAdjustment:
             if len(tempCurve) == 0:
                 tempCurve = [curve, RMSE, degree]
             else:
-                if tempCurve[1] < RMSE:
+                if RMSE < tempCurve[1]:
                     tempCurve = [curve, RMSE, degree]
 
-            print('RMSE adjustment: %f for degree: %d\n' % (RMSE, degree))
+            # print('RMSE adjustment: %f for degree: %d\n' % (RMSE, degree))
 
         print('The choosen degree is %d' % tempCurve[2])
         plt.show()
 
-        x = list()
+        x1 = list()
         y = list()
         for item in RMSEList:
-            x.append(item[1])
+            x1.append(item[1])
             y.append(item[0])
 
-        plt.plot(x, y)
-        plt.plot(x, y, 'o')
+        plt.plot(x1, y)
+        plt.plot(x1, y, 'o')
         plt.xlabel('Degrees')
         plt.ylabel('RMSE')
         plt.grid()
-        plt.title("Models RMSE for different degrees")
+        plt.title("Models RMSE for different degrees, station: 102008")
         plt.show()
 
         return tempCurve
@@ -323,6 +323,8 @@ class ApplyKalmanFilter:
             dailyDiffPlot.append(dailyDiff)
 
         print('Average daily difference: %f' % np.mean(dailyDiffPlot))
+        MAE2021 = dailyDiffPlot[len(dailyDiffPlot) - 1]
+        print('Daily difference for 2021: %f' % MAE2021)
 
         plt.xlabel('Years from 2011')
         plt.title('Daily difference with Kalman Filter')
@@ -338,6 +340,8 @@ class ApplyKalmanFilter:
         print('RMSE: %f\n' % RMSE)
 
         self.polyfit(predicted)
+
+        return MAE2021
 
     def polyfit(self, predicted):
         dayNumber = [i % 365 for i in range(0, len(self.model) - 1)]
@@ -357,8 +361,8 @@ class ApplyKalmanFilter:
         plt.title('Curve from Kalman filter')
         plt.show()
 
-        for i in fit:
-            print(i)
+        # for i in fit:
+        # print(i)
 
     def initKalmanFilter(self):
         kalmanFilter = KalmanFilter(dim_x=2, dim_z=1)

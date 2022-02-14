@@ -1,4 +1,6 @@
 import csv
+import statistics
+
 import matplotlib.pyplot as plt
 import MovingWindow as mw
 import Seasonal as seasonal
@@ -14,9 +16,12 @@ class AnalyzeData:
     def main(self):
         self.openFile()
         self.cleanCVS()
+        #self.yearlyDegree()
         #self.movingWindow()
-        self.seasonal()
-        #self.KNN()
+        print('Seasonal')
+        #self.seasonal()
+        print('KNN')
+        self.KNN()
 
     def openFile(self):
         file = open('F33GD2.csv', 'r')
@@ -60,10 +65,10 @@ class AnalyzeData:
         months = [['1', 1], ['12', 31]]
 
         for key in keys:
-            for j in range(2007, 2021):
+            for j in range(2007, 2022):
                 for item in months:
-                    for date in self.months[item[0]][0][key]:
-                        if date[2] == j and date[3] == item[1]:
+                    for date in self.months[item[0]][key][str(j)]:
+                        if date[2] == item[1]:
                             if degrees.__contains__(key):
                                 if degrees[key].__contains__(j):
                                     degrees[key][j].append(date[1])
@@ -79,11 +84,25 @@ class AnalyzeData:
             for year in degrees[key]:
                 _temp = degrees[key][year]
                 x.append(year)
-                y.append(_temp[1] - _temp[0])
+                degreeYear = _temp[1] - _temp[0]
+                y.append(degreeYear)
 
-            plt.barh(x, y)
-            plt.xlabel(key)
+            average = statistics.mean(y)
+            a = statistics.stdev(y)
+            mean = []
+            for i in range(len(y)):
+                mean.append(average)
+
+            plt.plot(x, y)
+            plt.plot(x, y, 'o')
+            plt.plot(x, mean, 'r--', label='Gennemsnit')
+            plt.ylabel('Yearly degree day')
+            plt.xlabel('Years')
+            plt.title(key)
+            plt.legend()
             plt.show()
+
+
 
     def movingWindow(self):
         mw.MovingWindow(self.rows).flow()

@@ -19,32 +19,56 @@ class KNNModel:
         self.y_test = None
         self.x = list()
         self.y = list()
+        self.x2021 = list()
+        self.y2021 = list()
 
     def flow(self):
-        self.setupDataFrame()
         self.KNN()
 
-    def setupDataFrame(self):
-        for station in self.stationsList.keys():
-            degreeDay = []
-            date = []
-            for item in self.stationsList[station]:
-                degreeDay.append(float(item[1]))
-                date.append(datetime.datetime.fromisoformat(item[0]))
+    def setupDataFrame(self, station):
+        degreeDay = []
+        date = []
+        for item in self.stationsList[station]:
+            degreeDay.append(float(item[1]))
+            splitDate = str(item[0]).split('-')
+            dayOfYear = datetime.date(int(splitDate[0]), int(splitDate[1]), int(splitDate[2])).timetuple().tm_yday
+            date.append(dayOfYear)
+            # date.append(datetime.datetime.fromisoformat(item[0]))
 
-            data = {'degree_days': degreeDay,
-                    'dates': date}
+        data = {'degree_days': degreeDay,
+                'dates': date}
 
-            self.data[station] = pd.DataFrame(data)
+        self.data[station] = pd.DataFrame(data)
 
     # Init of training and testing sets
     def KNN(self):
-        for station in self.data.keys():
+        for station in self.stationsList.keys():
+            if station != '102008':
+                continue
+
+            self.setupDataFrame(station)
             self.x = self.data[station].drop("degree_days", axis=1)
-            self.x = np.array([i for i in range(1, (len(self.x.values) + 1))]).reshape((-1, 1))  # self.x.values
+            self.x = np.array(self.x['dates']).reshape(-1, 1)
             self.y = self.data[station].drop("dates", axis=1)
             self.y = self.y.values
 
+            length = len(self.y)
+            lengthOf2021 = 0
+            for i in range(length - 1, 0, -1):
+                if self.x[i] == 1:
+                    lengthOf2021 += 1
+                    break
+                else:
+                    lengthOf2021 += 1
+
+            self.x2021 = list()
+            self.y2021 = list()
+
+            for i in range(length - lengthOf2021, length):
+                self.x2021.append(self.x[i])
+                self.y2021.append(self.y[i])
+
+            self.x2021 = np.array(self.x2021).reshape(-1, 1)
             # Split into training and test set
             self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
                 self.x, self.y, test_size=0.35, random_state=123456)
@@ -57,17 +81,23 @@ class KNNModel:
     # to check which one has the best RMSE and R²
     def testKValues(self):
 
-        RMSE = list()
+        scores = list()
         score = list()
         x = list()
-        for i in range(1, 2):
-            knn = KNeighborsRegressor(n_neighbors=2)
+        for i in range(1, 50):
+            knn = KNeighborsRegressor(n_neighbors=i)
             knn.fit(self.X_train, self.y_train)
             score.append(knn.score(self.X_test, self.y_test))
-            print(score[i - 1])
+            # print('Score %f' % score[i - 1])
 
             x.append(i)
-            RMSE.append(self.calculateRMSE(knn, 'K with random K-value (%d)' % i))
+            scores.append(self.calculateRMSE(knn, 'K with random K-value (%d), station: %s' % (i, x), False))
+
+        RMSE = list()
+        MAE = list()
+        for item in scores:
+            RMSE.append(item[0])
+            MAE.append(item[1])
 
         plt.subplot(2, 1, 1)
         plt.plot(x, RMSE, label='RMSE')
@@ -79,11 +109,11 @@ class KNNModel:
 
         plt.subplot(2, 1, 2)
         plt.subplots_adjust()
-        plt.plot(x, score, label='Score')
-        plt.plot(x, score, 'o')
+        plt.plot(x, MAE, label='MAE')
+        plt.plot(x, MAE, 'o')
         plt.xlabel('K-value')
-        plt.title('Score for the difference K-values')
-        plt.ylabel('Score')
+        plt.title('MAE for the difference K-values')
+        plt.ylabel('MAE')
         plt.grid()
         plt.tight_layout()
         plt.show()
@@ -92,50 +122,69 @@ class KNNModel:
     def findBestKValue(self):
         # Parameters for gridSearch
         parameters = {
-            "n_neighbors": range(1, 25)}
+            "n_neighbors": range(1, 50)}
         gridsearch = GridSearchCV(KNeighborsRegressor(), parameters)
         gridsearch.fit(self.X_train, self.y_train)
 
         print(gridsearch.best_params_)  # Best k-value
 
-        self.calculateRMSE(gridsearch, 'Finding the best K-value')
+        neighbors = str(gridsearch.best_params_)[16:18]
+
+        self.calculateRMSE(gridsearch, 'Finding the best K-value, neighbors: %s' % neighbors)
 
     # Test if it makes sense to use weighted averages
     def calculateKWithWeights(self):
         # Parameters for gridSearch
         parameters = {
-            "n_neighbors": range(1, 25),
+            "n_neighbors": range(1, 50),
             "weights": ["distance"]}
         gridsearch = GridSearchCV(KNeighborsRegressor(), parameters)
         gridsearch.fit(self.X_train, self.y_train)
 
         print(gridsearch.best_params_)  # best K-value
 
-        self.calculateRMSE(gridsearch, 'Finding best K-value and weights')
+        neighbors = str(gridsearch.best_params_)[16:18]
 
-    # Calculates the RMSE value and returns it
-    def calculateRMSE(self, model, title):
-        print(title)
-
-        test_pred = model.predict(self.X_test)
-        mse = mean_squared_error(self.y_test, test_pred)
-
-        RMSE = np.sqrt(mse)
-        print('Test RMSE: %f' % RMSE)
-
-        x_predicted, y_predicted = self.sort(self.X_test, test_pred)
-        x_real, y_real = self.sort(self.x, self.y)
-
-        plt.plot(x_real, y_real, linewidth=3)
-        plt.plot(x_predicted, y_predicted, color='r')
-        plt.xlabel('Years')
-        plt.ylabel('Degree days')
-        plt.title(title)
-        plt.show()
+        self.calculateRMSE(gridsearch, 'Finding best K-value and weights, neighbors: %s' % neighbors)
 
         print('-------------\n')
 
-        return RMSE
+    # Calculates the RMSE value and returns it
+    def calculateRMSE(self, model, title, shouldPrint=True):
+
+        test_pred = model.predict(self.X_test)
+        test_pred = model.predict(self.x2021)
+        mse = mean_squared_error(self.y2021, test_pred)
+
+        RMSE = np.sqrt(mse)
+
+        sum2021 = 0
+        for i in self.y2021:
+            sum2021 += i[0]
+
+        predSum = 0
+        for degree in test_pred:
+            predSum += degree
+
+        MAE = (sum2021 - predSum) / len(self.x2021)
+
+        x_predicted, y_predicted = self.sort(self.x2021, test_pred)
+        x_real, y_real = self.sort(self.x, self.y)
+
+        if shouldPrint:
+            print(title)
+            print('Test RMSE: %f' % RMSE)
+            print('MAE: %F' % MAE)
+
+            plt.plot(x_real, y_real, 'o', )
+            plt.plot(self.x2021, self.y2021, 'y')
+            plt.plot(x_predicted, y_predicted, 'r')
+            plt.xlabel('Years')
+            plt.ylabel('Degree days')
+            plt.title(title)
+            plt.show()
+
+        return [RMSE, MAE]
 
     @staticmethod
     def sort(x, y):
